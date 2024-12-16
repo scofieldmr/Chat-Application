@@ -11,6 +11,7 @@ public class ChatMessage {
 
     private String sender;
     private String content;
+    private Status status;
 
     public String getSender() {
         return sender;
@@ -26,5 +27,13 @@ public class ChatMessage {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
+
+    public void setStatus(Status status) {
+        this.status = status;
     }
 }

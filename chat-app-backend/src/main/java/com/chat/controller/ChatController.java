@@ -22,6 +22,9 @@ public class ChatController {
     @MessageMapping("/sendMessage")
     public void sendMessage(ChatMessage chatMessage) {
         messagingTemplate.convertAndSend("/topic/messages", chatMessage);
+        System.out.println("Status : "+ chatMessage.getStatus());
+        System.out.println("Sender : "+ chatMessage.getSender());
+        System.out.println("Received Message : "+ chatMessage.getContent());
 
     }
 

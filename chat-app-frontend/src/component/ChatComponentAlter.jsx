@@ -1,141 +1,183 @@
+import React, { useEffect, useRef, useState } from 'react'
 import 'bootstrap/dist/css/bootstrap.min.css'
 import SockJS from 'sockjs-client';
 import Stomp from 'stompjs';
-import React, { useState, useEffect,useRef } from 'react';
 
-function ChatComponentAlter() {
-  const stompClient = useRef(null);
-  const [messages, setMessages] = useState([]);
-  const [sender, setSender] = useState('');
-  const [message, setMessage] = useState('');
-  const [connected, setConnected] = useState(false);
 
-  // Set the connection status
-  const setConnectionStatus = (status) => {
-    setConnected(status);
-  };
+const ChatComponentAlter = () => {
 
-  // Connect to WebSocket and set up STOMP
-  const connect = () => {
-    const socket = new SockJS('http://localhost:8080/chat');  // Backend server which is running
-    stompClient.current = Stomp.over(socket);
+    //defining the state variable and setters
+    const [content, setContent] = useState('');
+    const [sender, setSender] = useState('');
+    const [messages, setMessages] = useState([]);
+    const [recipient,setRecipient] = useState('');
 
-    // Connect to the WebSocket server
-    stompClient.current.connect({}, (frame) => {
-      console.log('Connected: ' + frame);
-      setConnectionStatus(true); // Set connected status to true
+    //Foe the active user tab
 
-      // Subscribe to messages only once
-      stompClient.current.subscribe('/topic/messages', (msg) => {
-        console.log("Received message:", msg);  // Log received message to confirm it triggers once
-        showMessage(JSON.parse(msg.body)); // Display incoming messages
-      });
-    }, (error) => {
-      console.error('Error in WebSocket connection:', error);
-      setConnectionStatus(false); // Set connected status to false if error occurs
-    });
+    //defining the websocket variable
+    const stompClient = useRef(null);
+    const [connected, setConnected] = useState(false);
 
-    // setStompClient(client); // Set the stomp client
-  };
+    // To track if we have already subscribed to the WebSocket
+    const isSubscribed = useRef(false);
 
-  // Display incoming messages in the chat window
-  const showMessage = (message) => {
-    setMessages((prevMessages) => {
-      // Avoid adding duplicate messages
-      const messageExists = prevMessages.some(msg => msg.content === message.content && msg.sender === message.sender);
-      if (!messageExists) {
-        return [...prevMessages, { sender: message.sender, content: message.content }];
-      }
-      return prevMessages; // Don't add if message already exists
-    });
-  };
+        // To track if we have already subscribed to the WebSocket
+      const isJoined = useRef(false);
 
-  // Send a message to the WebSocket
-  const sendMessage = () => {
-    if (stompClient.current && sender && message && connected) {  // Ensure connected is true
-      const chatMessage = { sender, content: message };
-      stompClient.current.send('/app/sendMessage', {}, JSON.stringify(chatMessage));
-      setMessage(''); // Clear the message input
-    } else {
-      console.log('Cannot send message: WebSocket is not connected or input is empty.');
+     // reference to the message container
+     const messagesEndRef = useRef(null);
+
+    //Connection status
+    const setConnectionStatus = (status) => {
+        setConnected(status);
     }
-  };
 
-  // Log connection status changes
-  useEffect(() => {
-    console.log('Connected to server:', connected); // Log connection status
-}, [connected]); // Only runs when connected changes
+    //Connect
+    const connect = () => {
+        const socket = new SockJS('http://localhost:8080/chat');
+        stompClient.current = Stomp.over(socket);
 
-// Establish connection on component mount
-useEffect(() => {
-    connect(); // Initiate connection when component mounts
+        stompClient.current.connect({}, (frame) => {
+            console.log("Connected : ", frame);  //frame (Contains connectio data)
+            setConnectionStatus(true);       //Set Connection
 
-    return () => {
-        // Clean up WebSocket connection only if connected
-        if (stompClient.current && connected) {
-            stompClient.current.disconnect(() => {
-                console.log('Disconnected');
-            });
+            // Subscribe to the group only once
+            if (!isSubscribed.current) {
+                stompClient.current.subscribe("/topic/messages", (msge) => {
+                    console.log("Received Message : " + msge);
+                    showMessage(msge);
+                });
+    
+                // Subscribe to private messages (queue for the current user)
+                // stompClient.current.subscribe("/user/queue/private", (msge) => {
+                //     console.log("Received Message : " + msge);
+                //     showMessage(msge);
+                // });
+                isSubscribed.current = true;  // Mark as subscribe
+            }
+
+            // Send JOIN message when user connects
+            if (sender) {
+                const joinMessage = { sender, status: 'JOIN' }; // Send JOIN status
+                stompClient.current.send('/app/sendMessage', {}, JSON.stringify(joinMessage));
+            }
+
+        }, (error) => {
+            console.error("Web Socket Connection Error:", error);
+            setConnectionStatus(false);
+        })
+    }
+
+    //Send Message
+    const sendMessage = () => {
+     
+        if (stompClient.current && sender && content && connected) {
+            const chatMessage = { sender, content, status: 'MESSAGE'};
+            stompClient.current.send('/app/sendMessage', {}, JSON.stringify(chatMessage));
+            setContent('');
         }
-    };
-}, []); // Empty dependency ensures this runs only once on mount
+        else {
+            console.log('Cannot send message: WebSocket is not connected or input is empty.');
+        }
+    }
 
- 
 
-  return (
-    <div className="container mt-4">
-      <h2 className="text-center" style={{ color: 'red' }}>
-        REAL TIME CHAT APPLICATION
-      </h2>
+    //Show Message
+    const showMessage = (msge) => {
+        const messageBody = JSON.parse(msge.body);
 
-      <div
-        id="chat"
-        className="border border-primary border rounded p-3 mb-3"
-        style={{ height: '300px', overflowY: 'auto' }}
-      >
-        {messages.map((msg, index) => (
-          <div key={index} className="border-bottom mb-2" style={{fontSize:'20px'}}>
-            {msg.sender}: {msg.content}
-          </div>
-        ))}
-      </div>
+        setMessages((previousMessages) => {
+            return [...previousMessages, messageBody];
+        })
 
-      <div className="input-group mb-3">
-        <input
-          id="senderInput"
-          type="text"
-          placeholder="Enter your name"
-          className="form-control"
-          value={sender}
-          onChange={(e) => setSender(e.target.value)}
-          style={{padding:'10px'}}
-        />
-      </div>
+        if (messageBody.status === 'JOIN') {
+            console.log(`${messageBody.sender} joined the chat.`);
+        }
+        else if (messageBody.status === 'LEAVE') {
+            console.log(`${messageBody.sender} left the chat.`);
+        }
+    }
 
-      <div className="input-group mb-3">
-        <input
-          id="messageInput"
-          type="text"
-          placeholder="Type message.."
-          className="form-control"
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          style={{padding:'10px'}}
-        />
-        <div className="input-group-append">
-          <button
-            id="sendMessage"
-            className="btn btn-primary"
-            onClick={sendMessage}
-            disabled={!connected}       // Disable the button if not connected
-            style={{padding:'10px'}} 
-          >
-            Send
-          </button>
+
+    useEffect(() => {
+        connect();
+
+        return () => {
+            // Clean up WebSocket connection only if connected
+            if (stompClient.current && connected && sender) {
+                // Send LEAVE message when the user disconnects
+                const leaveMessage = { sender, status: 'LEAVE' };
+                stompClient.current.send('/app/sendMessage', {}, JSON.stringify(leaveMessage));
+
+                stompClient.current.disconnect(() => {
+                    console.log('Disconnected');
+                });
+            }
+        };
+    }, [connected]);
+
+    // Scroll to the bottom whenever messages change
+    useEffect(() => {
+      // Scroll to the bottom of the messages container
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+    // useEffect(() => {
+    //     setMessages([{
+    //         sender: 'John',
+    //         message: 'Hello'
+    //     },
+    //     {
+    //         sender: 'Max',
+    //         message: 'Hello John, How are you?'
+    //     }
+    //     ])
+
+    // }, []);
+
+    return (
+        <div className='container'>
+            <h2 className='text-center mt-3' style={{ color: 'red' }}>Chat Application - Real Time</h2>
+
+            <div className='border border-rounded border-primary mt-3' style={{ height: '500px',scrollMarginTop:'overflow-scroll'}}>
+
+                {messages.map((msg, index) => (
+                    <div key={index} className='mt-3' style={{ fontSize: '20px', marginLeft: '10px' }}>
+                        {msg.status === 'JOIN' && <div style={{ color: 'green' }}>{msg.sender} has joined the chat.</div>}
+                        {msg.status === 'LEAVE' && <div style={{ color: 'red' }}>{msg.sender} has left the chat.</div>}
+                        {msg.status === 'MESSAGE' && <div>{msg.sender}: {msg.content}</div>}
+                    </div>
+                ))}
+            </div>
+
+            <div className='mt-3'>
+                <div className='input-group mb-3' style={{ height: '50px' }}>
+                    <input type='text'
+                        placeholder='Enter your name...'
+                        name='sender'
+                        value={sender}
+                        className='form-control'
+                        onChange={(e) => setSender(e.target.value)}
+                    >
+                    </input>
+                </div>
+
+
+                <div className='input-group mb-3' style={{ height: '50px' }}>
+                    <input type='text'
+                        placeholder='Type your message...'
+                        name='content'
+                        value={content}
+                        className='form-control'
+                        onChange={(e) => setContent(e.target.value)}
+                    >
+                    </input>
+                    <button className='btn btn-primary' onClick={sendMessage} style={{ width: '100px' }}>Send</button>
+                </div>
+            </div>
+
         </div>
-      </div>
-    </div>
-  );
+    )
 }
 
-export default ChatComponentAlter;
+export default ChatComponentAlter
